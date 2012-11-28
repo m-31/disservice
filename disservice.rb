@@ -45,6 +45,8 @@ module Disservice
       @@log_level ||= 'info'
       @@levels = %w(debug info warn error)
       return if @@levels.index(fn.to_s) < @@levels.index(@@log_level)
+      return unless a
+      a = a.inspect unless a.is_a? String
       @@mutex ||= Mutex.new
       @@mutex.synchronize {
         a.lines.each_with_index do |line, idx|
@@ -57,6 +59,8 @@ module Disservice
 
 
   class Mocker
+    attr_accessor :ignore_headers
+
     def initialize(mocks_dir)
       mocks_dir << '/' unless mocks_dir =~ /\/$/
 
@@ -64,10 +68,10 @@ module Disservice
 
       @request_map = {}
       @not_persisted = []
+      @ignore_headers = []
 
       Logger.info "reading mocks from #{mocks_dir}"
       Dir.glob(@mocks_dir + '**/*') do |fn|
-        next if fn =~ /\*/
         s = File.open(fn){ |f| f.read }
         request, response = s.split(/\r?\n\r?\n/, 2)
         request_line, header = request.split(/\r?\n/, 2)
@@ -76,14 +80,27 @@ module Disservice
       end
     end
 
-    def try_match(request_line)
-      self.fetch(self.find(request_line))
+    def match(request_line, headers_map = {})
+      k = self.find(request_line)
+      v = self.fetch(k)
+      return v if headers_map.empty? || v.nil?
+
+      found_headers, found_body = v[:request].split(/(\r?\n){2}/, 2)
+      found_headers_map = Hash[found_headers[1..-1].split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
+      Logger.debug found_headers_map
+      headers_matched = headers_map.all? do |k,v|
+        true and next if @ignore_headers.include?(k)
+        Logger.debug "matching header #{k.inspect}: #{v.inspect} against #{found_headers_map.fetch(k, nil).inspect}"
+        found_headers_map.has_key?(k) && File.fnmatch(v, found_headers_map[k])
+      end
+      Logger.debug "headers matched? #{headers_matched.inspect}"
+      return v if headers_matched
+
+      nil
     end
 
     def find(request_line)
-      @request_map.keys.find do |k|
-        File.fnmatch(k, request_line)
-      end
+      @request_map.keys.find{ |k| File.fnmatch(k, request_line) }
     end
 
     def fetch(key)
@@ -96,7 +113,7 @@ module Disservice
         Logger.debug "not storing already known request: \"#{request_line}\""
       else
         Logger.debug "storing new request: \"#{request_line}\""
-        add(request, response)
+        add(request, response, {fn: '-'})
         @not_persisted.push(request)
         Thread.new do
           sleep 5
@@ -118,10 +135,12 @@ module Disservice
           h = Digest::SHA1.hexdigest(header)[0..7]
 
           fn = [host, request_line.gsub(/[\s:+*#]/, '_').gsub(/[\/\\?]/, '-'), h].join('_')
+          @request_map[request_line][:fn] = @mocks_dir + fn
           Logger.debug "persisting \"#{request_line}\" to #{@mocks_dir + fn}"
           value = @request_map[request_line]
-          File.open(@mocks_dir + fn, 'w') do |f|
+          File.open(@mocks_dir + fn, 'wb') do |f|
             f.write(request)
+            f.write("\r\n\r\n")
             f.write(value[:response])
           end
         end
@@ -174,51 +193,44 @@ module Disservice
       begin
         _, peerport, peeraddr = to_client.peeraddr
 
-        request = ''
-        response = ''
-
         request_line = to_client.readline
-        request << request_line
+        request_headers = ''
+        response = ''
 
         verb = request_line[/^\w+/]
         url = request_line[/^\w+\s+(\S+)/, 1]
         version = request_line[/HTTP\/(1\.\d)\s*$/, 1]
-        #uri = URI::parse(url)
 
-        matched_request = @mocker.find(request_line.strip) if @options[:known] == 'replay'
-        Logger.info "##{connection_count}: #{peeraddr}:#{peerport} #{verb} #{url} HTTP/#{version} \"#{matched_request || '-'}\""
+        loop do
+          line = to_client.readline
+          request_headers << line
+          break if line.strip.empty?
+        end
+        request_headers_map = Hash[request_headers.split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
+        request_headers_map['Host'] = @dsthost
 
-        if matched_request && @options[:known] == 'replay'
-          response = @mocker.fetch(matched_request)
-          to_client.write(response[:response])
+        matched_request = @mocker.match(request_line.strip, request_headers_map) if @options[:known] == 'replay'
+
+        Logger.info "##{connection_count}: #{peeraddr}:#{peerport} \"#{request_headers_map['Host']}\" \"#{request_line.strip}\" \"#{matched_request ? matched_request[:fn] : '-'}\" \"#{matched_request ? matched_request[:request].lines.first.strip : '-'}\""
+
+        if matched_request
+          response = matched_request[:response]
+          to_client.write(response)
           to_client.close
         else
           # unknown request
           raise Exception if @options[:unknown] == 'croak' && !matched_request
+
+          request_headers = request_headers_map.map{ |k,v| [k,v].join(': ') }.join("\r\n")
+
           to_server = TCPSocket.new(@dsthost, @dstport || 80)
           to_server.write(request_line)
 
-          content_len = 0
+          to_server.write("Connection: close\r\n\r\n")
+          content_len = request_headers_map['Content-Length'] || 0
 
-          loop do
-            line = to_client.readline
-            request << line
-
-            if line =~ /^Content-Length:\s+(\d+)\s*$/
-              content_len = $1.to_i
-            end
-
-            if line.strip.empty?
-              to_server.write("Connection: close\r\n\r\n")
-
-              if content_len >= 0
-                to_server.write(to_client.read(content_len))
-              end
-
-              break
-            else
-              to_server.write(line)
-            end
+          if content_len >= 0
+            to_server.write(to_client.read(content_len))
           end
 
           buff = ""
@@ -232,9 +244,11 @@ module Disservice
           to_client.close
           to_server.close
 
+          request = request_line + request_headers
+
           @mocker.store(request, response) if @options[:unknown] == 'record' && !matched_request
         end
-      rescue Exception => e
+      rescue SocketError => e
         Logger.error "##{connection_count}: Socket error: #{e}"
       end
     end
