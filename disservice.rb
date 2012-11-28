@@ -67,6 +67,7 @@ module Disservice
 
       Logger.info "reading mocks from #{mocks_dir}"
       Dir.glob(@mocks_dir << '**/*') do |fn|
+        next if fn =~ /\*/
         s = File.open(fn){ |f| f.read }
         request, response = s.split(/\r?\n\r?\n/, 2)
         request_line, header = request.split(/\r?\n/, 2)
