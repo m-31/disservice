@@ -257,7 +257,7 @@ OptionParser.new do |opts|
   opts.on('-m', '--mocks DIRECTORY', String, "Read recorded requests from DIRECTORY (default: #{options[:mocks_dir]})")
 
   options[:port] = 80
-  opts.on('-l', '--listen PORT', (1..65535).to_a, "Listen on port PORT (default: #{options[:port]})") do |port|
+  opts.on('-l', '--listen PORT', Integer, "Listen on port PORT (default: #{options[:port]})") do |port|
     options[:port] = port
   end
 
@@ -267,7 +267,7 @@ OptionParser.new do |opts|
   end
 
   options[:dstport] = '8080'
-  opts.on('-p', '--dstport DSTPORT', (1..65535).to_a, "Destination port to forward requests to (default: #{options[:dstport]})") do |dstport|
+  opts.on('-p', '--dstport DSTPORT', Integer, "Destination port to forward requests to (default: #{options[:dstport]})") do |dstport|
     options[:dstport] = dstport
   end
 
