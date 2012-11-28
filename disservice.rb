@@ -113,7 +113,7 @@ module Disservice
           header, body = request.split(/(?:\r?\n){2}/, 2)
           request_line = header.lines.first.strip
           host = header.lines.find{ |x| x =~ /^Host: (.*)/ } || ''
-          host = host.strip.split(/: /, 2).last.gsub(/:/, '_')
+          host = host.strip.split(/: /, 2).last.gsub(/:/, '_') rescue 'NOHOST'
           h = Digest::SHA1.hexdigest(header)[0..7]
 
           fn = [host, request_line.gsub(/[\s:+*#]/, '_').gsub(/[\/\\?]/, '-'), h].join('_')
