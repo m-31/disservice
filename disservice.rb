@@ -13,7 +13,7 @@ module Disservice
         logfile = [$0.sub(/\.rb$/, ''), options[:port], options[:dsthost], options[:dstport]].join('_') << '.log'
         Process.daemon(true, true)
         $stderr.puts "running in the background (pid: #{$$}), logfile: #{logfile}"
-        File.open($0 << '.pid', 'w'){ |f| f.write($$) }
+        File.open($0 + '.pid', 'w'){ |f| f.write($$) }
         STDIN.reopen "/dev/null"
         STDOUT.reopen logfile, "a"
         STDERR.reopen logfile, "a"
@@ -66,7 +66,7 @@ module Disservice
       @not_persisted = []
 
       Logger.info "reading mocks from #{mocks_dir}"
-      Dir.glob(@mocks_dir << '**/*') do |fn|
+      Dir.glob(@mocks_dir + '**/*') do |fn|
         next if fn =~ /\*/
         s = File.open(fn){ |f| f.read }
         request, response = s.split(/\r?\n\r?\n/, 2)
@@ -118,9 +118,9 @@ module Disservice
           h = Digest::SHA1.hexdigest(header)[0..7]
 
           fn = [host, request_line.gsub(/[\s:+*#]/, '_').gsub(/[\/\\?]/, '-'), h].join('_')
-          Logger.debug "persisting \"#{request_line}\" to #{@mocks_dir << fn}"
+          Logger.debug "persisting \"#{request_line}\" to #{@mocks_dir + fn}"
           value = @request_map[request_line]
-          File.open(@mocks_dir << fn, 'w') do |f|
+          File.open(@mocks_dir + fn, 'w') do |f|
             f.write(request)
             f.write(value[:response])
           end
