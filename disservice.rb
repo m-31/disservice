@@ -227,7 +227,7 @@ module Disservice
           to_server.write(request_line)
 
           to_server.write("Connection: close\r\n\r\n")
-          content_len = request_headers_map['Content-Length'] || 0
+          content_len = request_headers_map['Content-Length'].to_i rescue 0
 
           if content_len >= 0
             to_server.write(to_client.read(content_len))
