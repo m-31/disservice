@@ -134,7 +134,7 @@ module Disservice
           host = host.strip.split(/: /, 2).last.gsub(/:/, '_') rescue 'NOHOST'
           h = Digest::SHA1.hexdigest(header)[0..7]
 
-          fn = [host, request_line.gsub(/\?.*/, '').gsub(/[\s:+*#]/, '_').gsub(/[\/\\?]/, '-'), h].join('_')
+          fn = [host, request_line.gsub(/\?.*/, '').gsub(/[\s:+*#]/, '_').gsub(/[\/\\?]/, '-')[1..128], h].join('_')
           @request_map[request_line][:fn] = @mocks_dir + fn
           Logger.debug "persisting \"#{request_line}\" to #{@mocks_dir + fn}"
           value = @request_map[request_line]
