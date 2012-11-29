@@ -23,6 +23,85 @@ Usage: disservice [options]
     -h, --help                       Display this help.
 ```
 
+## Matching
+
+An incoming request's request-line and headers are matched against all stored requests.
+
+### Matching example: Simple
+
+Request:
+```
+GET / HTTP/1.1
+Host: localhost
+Accept: */*
+```
+
+Stored request:
+```
+GET / HTTP/1.1
+```
+
+This will (obviously) match because the stored request has no request headers and the request-line is equal.
+
+### Matching example: Wildcard request-line
+
+Request:
+```
+GET /example/article_search?shop=1&query=shoes
+Host: www.example.com
+Connection: Keep-Alive
+User-Agent: curl
+```
+
+Stored request:
+```
+GET /example/article_search?shop=1&query=* HTTP/1.1
+Host: www.example.com
+Connection: Keep-Alive
+```
+
+The stored request-line will be wildcard-matched against the client request and match successfully. Then, all header lines sent by the client are matched against the stored header lines:
+
+1. If the same header is in the client request and the stored request, that header is wildcard matched
+2. If the client sends a header that is not present in the stored request, that header matches
+3. If the client fails to send a header that is present in the stored request, that header does not match
+
+In this case, since the `User-Agent` header is not present in the stored request, the match is successful.
+
+### Matching example: Mismatching headers
+
+Request:
+```
+GET /example/article_search?shop=1&query=shoes
+Host: www.example.com
+Connection: close
+```
+
+Stored request:
+```
+GET /example/article_search?shop=1&query=* HTTP/1.1
+Host: www.example.com
+User-Agent: curl
+```
+
+This request would not match this stored request because the client did not send a matching User-Agent line.
+
+Request:
+```
+GET /example/article_search?shop=1&query=shoes
+Host: www.example.com
+Connection: close
+```
+
+Stored request:
+```
+GET /example/article_search?shop=1&query=* HTTP/1.1
+Host: www.example.com
+Connection: Keep-Alive
+```
+
+This request would not match this stored request because the `Connection` header does not match.
+
 ## Example
 
 You want to mock a webservice for your integration or load tests. Configure your test or server to use *disservice* as upstream. Set *disservice* to record unknown requests (this is the default).
@@ -33,7 +112,7 @@ You want to mock a webservice for your integration or load tests. Configure your
 
 Then run your test and fill *disservice*'s request cache.
 
-Now you can edit the stored requests and add wildcards to the HTTP request-line, e.g. change the first line of ./mocks/<FILE> to:
+Now you can edit the stored requests and add wildcards to the HTTP request part, e.g. change the first line (request-line) of ./mocks/<FILE> to:
 
 ```
 GET /assets/application.css* HTTP/1.?
