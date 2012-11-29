@@ -1,6 +1,8 @@
 # Disservice
 
-Simply record your requests to a remote webservice, then replay them later in your tests.
+Simply record your requests to a remote webservice, then replay them later in your tests. Matches request-line and headers with wildcards, rewrites host headers, and has a silly name.
+
+Disservice is © copyright 2012 Matthias Bauer <http://matthias-bauer.net/>. Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
 
 ## Basic Usage
 

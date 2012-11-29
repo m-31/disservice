@@ -1,0 +1,11 @@
+--2012-11-29 17:18:16--  http://www.apache.org/licenses/LICENSE-2.0.txt
+Resolving www.apache.org... 140.211.11.131, 192.87.106.229, 2001:610:1:80bc:192:87:106:229
+Connecting to www.apache.org|140.211.11.131|:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 11358 (11K) [text/plain]
+Saving to: ‘LICENSE-2.0.txt’
+
+     0K .......... .                                          100% 64.0K=0.2s
+
+2012-11-29 17:18:17 (64.0 KB/s) - ‘LICENSE-2.0.txt’ saved [11358/11358]
+
