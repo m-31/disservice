@@ -18,9 +18,10 @@
 require 'optparse'
 require 'socket'
 require 'digest/sha1'
+require 'benchmark'
 
 module Disservice
-  VERSION = '0.2'
+  VERSION = '0.22'
 
   class Disservice
     def initialize(options)
@@ -87,7 +88,7 @@ module Disservice
 
       Logger.info "reading mocks from #{mocks_dir}"
       Dir.glob(@mocks_dir + '**/*') do |fn|
-        s = File.open(fn, 'r:ascii-8bit'){ |f| f.read }
+        s = File.open(fn, 'rb'){ |f| f.read }
         request, response = s.split(/\r?\n\r?\n/, 2)
         request_line, header = request.split(/\r?\n/, 2)
         add(request, response, {fn: fn})
@@ -218,7 +219,7 @@ module Disservice
 
         loop do
           line = to_client.readline
-          request_headers << line
+          request_headers << line unless line =~ /^Connection: /
           break if line.strip.empty?
         end
         request_headers_map = Hash[request_headers.split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
@@ -226,39 +227,41 @@ module Disservice
 
         matched_request = @mocker.match(request_line.strip, request_headers_map) if @options[:known] == 'replay'
 
-        Logger.info "##{connection_count}: #{peeraddr}:#{peerport} \"#{request_headers_map['Host']}\" \"#{request_line.strip}\" \"#{matched_request ? matched_request[:fn] : '-'}\" \"#{matched_request ? matched_request[:request].lines.first.strip : '-'}\""
-
         if matched_request
           response = matched_request[:response]
           to_client.write(response)
           to_client.close
+          upstream_response_time = '-'
         else
           # unknown request
           raise Exception if @options[:unknown] == 'croak' && !matched_request
 
           request_headers = request_headers_map.map{ |k,v| [k,v].join(': ') }.join("\r\n")
 
-          to_server = TCPSocket.new(@dsthost, @dstport || 80)
-          to_server.write(request_line)
+          upstream_response_time = sprintf('%.5f', Benchmark.realtime {
+            to_server = TCPSocket.new(@dsthost, @dstport || 80)
+            to_server.write(request_line)
+            to_server.write("Connection: close\r\n")
+            to_server.write(request_headers)
+            to_server.write("\r\n\r\n")
 
-          to_server.write("Connection: close\r\n\r\n")
-          content_len = request_headers_map['Content-Length'].to_i rescue 0
+            content_len = request_headers_map['Content-Length'].to_i rescue 0
 
-          if content_len >= 0
-            to_server.write(to_client.read(content_len))
-          end
+            if content_len >= 0
+              to_server.write(to_client.read(content_len))
+            end
 
-          buff = ""
-          loop do
-            to_server.read(4096, buff)
-            to_client.write(buff)
-            response << buff
-            break if buff.size < 4096
-          end
+            buff = ""
+            loop do
+              to_server.read(4096, buff)
+              to_client.write(buff)
+              response << buff
+              break if buff.size < 4096
+            end
 
-          to_client.close
-          to_server.close
-
+            to_client.close
+            to_server.close
+          })
           request = request_line + request_headers
 
           if @options[:unknown] == 'record' && !matched_request
@@ -270,6 +273,7 @@ module Disservice
             end
           end
         end
+        Logger.info "##{connection_count}: #{peeraddr}:#{peerport} \"#{request_headers_map['Host']}\" \"#{request_line.strip}\" \"#{matched_request ? matched_request[:fn] : '-'}\" \"#{matched_request ? matched_request[:request].lines.first.strip : '-'}\" #{upstream_response_time}"
       rescue EOFError => e
         Logger.warn "##{connection_count}: EOF while reading from socket"
       rescue Errno::ECONNRESET, Errno::EPIPE => e
