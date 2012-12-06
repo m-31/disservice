@@ -89,7 +89,7 @@ module Disservice
       @ignore_headers = []
 
       Logger.info "reading mocks from #{mocks_dir}"
-      Find.find(@mocks_dir).select{ |fn| File.file?(fn) && fn[0] != '.' }.each do |fn|
+      Find.find(@mocks_dir).select{ |fn| File.file?(fn) && File.basename(fn)[0] != '.' }.each do |fn|
         s = File.open(fn, 'rb'){ |f| f.read }
         request_line = s.lines.first
         request_body = nil
@@ -312,7 +312,6 @@ module Disservice
             to_server.close
             Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Finished"
           })
-          request = request_line + request_headers
 
           if @options[:unknown] == 'record' && !matched_request
             case @options[:record]
