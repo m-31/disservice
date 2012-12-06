@@ -23,7 +23,7 @@ require 'fileutils'
 require 'find'
 
 module Disservice
-  VERSION = '0.3'
+  VERSION = '0.31'
 
   class Disservice
     def initialize(options)
@@ -35,6 +35,10 @@ module Disservice
         STDIN.reopen "/dev/null"
         STDOUT.reopen logfile, "a"
         STDERR.reopen logfile, "a"
+      end
+      if options[:log] != '-'
+        STDOUT.reopen options[:log], "a"
+        STDERR.reopen options[:log], "a"
       end
 
       Logger.level = options[:loglevel]
@@ -371,6 +375,11 @@ OptionParser.new do |opts|
   options[:dstport] = '8080'
   opts.on('-p', '--dstport DSTPORT', Integer, "Destination port to forward requests to (default: #{options[:dstport]})") do |dstport|
     options[:dstport] = dstport
+  end
+
+  options[:log] = '-'
+  opts.on('--log LOGFILE', String, "Write log output to file, or '-' for STDERR (default: #{options[:log]})") do |logfile|
+    options[:log] = logfile
   end
 
   options[:loglevel] = 'info'
