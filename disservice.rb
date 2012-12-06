@@ -104,10 +104,11 @@ module Disservice
       found_headers, found_body = v[:request].split(/(\r?\n){2}/, 2)
       found_headers_map = Hash[found_headers[1..-1].split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
       Logger.debug "request line: #{request_line.inspect}"
+      Logger.debug "request headers: #{headers_map.inspect}"
       Logger.debug "stored headers: #{found_headers_map.inspect}"
       headers_matched = headers_map.all? do |k,v|
         true and next if @ignore_headers.include?(k)
-        Logger.debug "matching header #{k.inspect}: #{v.inspect} against #{found_headers_map.fetch(k, nil).inspect}"
+        #Logger.debug "matching header #{k.inspect}: #{v.inspect} against #{found_headers_map.fetch(k, nil).inspect}"
         !found_headers_map.has_key?(k) || File.fnmatch(v, found_headers_map[k])
       end
       Logger.debug "headers matched? #{headers_matched.inspect}"
@@ -183,12 +184,18 @@ module Disservice
 
       @connection_count = 1
       @backlog = 1024
+
+      @num_hits = 0
+      @num_error = 0
     end
 
     def run
       begin
         @socket = TCPServer.new(@port)
         @socket.listen(@backlog)
+        Signal.trap('USR1') do
+          Logger.info "#{@connection_count-1} requests, #{@num_hits} cache hits, #{@num_hits.to_f/(@connection_count-1).to_f*100.0}% cache hit rate. #{@num_error} socket errors."
+        end
         Logger.info "Listening on #{@port} (backlog #{@backlog})..."
         loop do
           Thread.start(@connection_count, @socket.accept, &method(:accept_request))
@@ -202,6 +209,7 @@ module Disservice
           @socket.close
         end
         @mocker.save
+        Logger.info "#{@connection_count-1} requests, #{@num_hits} cache hits, #{@num_hits.to_f/(@connection_count-1).to_f*100.0}% cache hit rate. #{@num_error} socket errors."
         Logger.info 'Exiting.'
       end
     end
@@ -231,6 +239,7 @@ module Disservice
         matched_request = @mocker.match(request_line.strip, request_headers_map) if @options[:known] == 'replay'
 
         if matched_request
+          @num_hits += 1
           response = matched_request[:response]
           Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Request matched, sending response"
           to_client.write(response)
@@ -239,7 +248,7 @@ module Disservice
           Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Connection closed"
           upstream_response_time = '-'
         else
-          Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Request not matched"
+          Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Request NOT matched"
           # unknown request
           raise Exception if @options[:unknown] == 'croak' && !matched_request
 
@@ -285,10 +294,13 @@ module Disservice
         end
         Logger.info "##{connection_count}: [#{peeraddr}:#{peerport}] \"#{request_headers_map['Host']}\" \"#{request_line.strip}\" \"#{matched_request ? matched_request[:fn] : '-'}\" \"#{matched_request ? matched_request[:request].lines.first.strip : '-'}\" #{upstream_response_time}"
       rescue EOFError => e
+        @num_error += 1
         Logger.warn "##{connection_count}: [#{peeraddr}:#{peerport}] EOF while reading from socket"
       rescue Errno::ECONNRESET, Errno::EPIPE => e
+        @num_error += 1
         Logger.warn "##{connection_count}: [#{peeraddr}:#{peerport}] Connection error: #{e}"
       rescue SocketError => e
+        @num_error += 1
         Logger.error "##{connection_count}: [#{peeraddr}:#{peerport}] Socket error: #{e}"
       end
     end
