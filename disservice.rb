@@ -222,16 +222,23 @@ module Disservice
 
         request_line = to_client.readline
         request_headers = ''
+        request_body = ''
         response = ''
 
         verb = request_line[/^\w+/]
         url = request_line[/^\w+\s+(\S+)/, 1]
         version = request_line[/HTTP\/(1\.\d)\s*$/, 1]
+        content_length = nil
 
         loop do
           line = to_client.readline
           request_headers << line unless line =~ /^Connection: /
+          _, content_length = (line =~ /^Content-Length: (\d+)/i)
           break if line.strip.empty?
+        end
+        if verb == 'POST' && content_length
+          line = to_client.read(content_length)
+          request_body << line unless line =~ /^Connection: /
         end
         request_headers_map = Hash[request_headers.split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
         request_headers_map['Host'] = @dsthost
@@ -261,6 +268,7 @@ module Disservice
             to_server.write("Connection: close\r\n")
             to_server.write(request_headers)
             to_server.write("\r\n\r\n")
+            to_server.write(request_body)
 
             content_len = request_headers_map['Content-Length'].to_i rescue 0
 
