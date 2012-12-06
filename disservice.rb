@@ -103,7 +103,8 @@ module Disservice
 
       found_headers, found_body = v[:request].split(/(\r?\n){2}/, 2)
       found_headers_map = Hash[found_headers[1..-1].split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
-      Logger.debug found_headers_map
+      Logger.debug "request line: #{request_line.inspect}"
+      Logger.debug "stored headers: #{found_headers_map.inspect}"
       headers_matched = headers_map.all? do |k,v|
         true and next if @ignore_headers.include?(k)
         Logger.debug "matching header #{k.inspect}: #{v.inspect} against #{found_headers_map.fetch(k, nil).inspect}"
