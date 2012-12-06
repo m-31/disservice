@@ -272,6 +272,8 @@ module Disservice
         end
       rescue EOFError => e
         Logger.warn "##{connection_count}: EOF while reading from socket"
+      rescue Errno::ECONNRESET => e
+        Logger.warn "##{connection_count}: Connection reset by peer"
       rescue SocketError => e
         Logger.error "##{connection_count}: Socket error: #{e}"
       end
