@@ -104,7 +104,7 @@ module Disservice
           request, response = s.split(/\r?\n\r?\n/, 2)
         end
         add(request, response, {fn: fn})
-        Logger.debug '  ' << fn << ' => ' << request_line
+        #Logger.debug '  ' << fn << ' => ' << request_line
       end
     end
 
