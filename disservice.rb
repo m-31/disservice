@@ -19,9 +19,11 @@ require 'optparse'
 require 'socket'
 require 'digest/sha1'
 require 'benchmark'
+require 'fileutils'
+require 'find'
 
 module Disservice
-  VERSION = '0.22'
+  VERSION = '0.3'
 
   class Disservice
     def initialize(options)
@@ -87,29 +89,38 @@ module Disservice
       @ignore_headers = []
 
       Logger.info "reading mocks from #{mocks_dir}"
-      Dir.glob(@mocks_dir + '**/*') do |fn|
+      Find.find(@mocks_dir).select{ |fn| File.file?(fn) && fn[0] != '.' }.each do |fn|
         s = File.open(fn, 'rb'){ |f| f.read }
-        request, response = s.split(/\r?\n\r?\n/, 2)
-        request_line, header = request.split(/\r?\n/, 2)
+        request_line = s.lines.first
+        request_body = nil
+        if request_line =~ /^POST|^PUT/
+          request, request_body, response = s.split(/\r?\n\r?\n/, 3)
+          request = [request, request_body].join("\r\n\r\n")
+        else
+          request, response = s.split(/\r?\n\r?\n/, 2)
+        end
         add(request, response, {fn: fn})
         Logger.debug '  ' << fn << ' => ' << request_line
       end
     end
 
-    def match(request_line, headers_map = {})
-      k = self.find(request_line)
-      v = self.fetch(k)
-      return v if headers_map.empty? || v.nil?
+    def match(request)
+      request_line, request_headers = request.split(/\r\n/, 2)
+      request_headers_map = Hash[request_headers.split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
+      host = request_headers_map['Host'] rescue 'NO-HOST'
+      v = @request_map[host][request_line] rescue nil
+      Logger.debug [request_line, request_headers, host, v]
+      return v if v.nil?
 
-      found_headers, found_body = v[:request].split(/(\r?\n){2}/, 2)
-      found_headers_map = Hash[found_headers[1..-1].split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
+      stored_headers, stored_body = v[:request].split(/(\r?\n){2}/, 2)
+      stored_headers_map = Hash[stored_headers[1..-1].split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
       Logger.debug "request line: #{request_line.inspect}"
-      Logger.debug "request headers: #{headers_map.inspect}"
-      Logger.debug "stored headers: #{found_headers_map.inspect}"
-      headers_matched = headers_map.all? do |k,v|
+      Logger.debug "request headers: #{request_headers_map.inspect}"
+      Logger.debug "stored headers: #{stored_headers_map.inspect}"
+      headers_matched = request_headers_map.all? do |k,v|
         true and next if @ignore_headers.include?(k)
-        #Logger.debug "matching header #{k.inspect}: #{v.inspect} against #{found_headers_map.fetch(k, nil).inspect}"
-        !found_headers_map.has_key?(k) || File.fnmatch(v, found_headers_map[k])
+        #Logger.debug "matching header #{k.inspect}: #{v.inspect} against #{stored_headers_map.fetch(k, nil).inspect}"
+        !stored_headers_map.has_key?(k) || File.fnmatch(v, stored_headers_map[k])
       end
       Logger.debug "headers matched? #{headers_matched.inspect}"
       return v if headers_matched
@@ -117,17 +128,9 @@ module Disservice
       nil
     end
 
-    def find(request_line)
-      @request_map.keys.find{ |k| File.fnmatch(k, request_line) }
-    end
-
-    def fetch(key)
-      @request_map[key]
-    end
-
     def store(request, response)
-      request_line, header = request.split(/\r?\n/, 2)
-      if find(request_line)
+      request_line, _ = request.split(/\r?\n/, 2)
+      if match(request)
         Logger.debug "not storing already known request: \"#{request_line}\""
       else
         Logger.debug "storing new request: \"#{request_line}\""
@@ -149,13 +152,18 @@ module Disservice
           header, body = request.split(/(?:\r?\n){2}/, 2)
           request_line = header.lines.first.strip
           host = header.lines.find{ |x| x =~ /^Host: (.*)/ } || ''
-          host = host.strip.split(/: /, 2).last.gsub(/:/, '_') rescue 'NOHOST'
+          host = host.strip.split(/: /, 2).last.gsub(/:/, '_') rescue 'NO-HOST'
+          verb = request_line[/^\w+/]
+          url = request_line[/^\w+\s+(\S+)/, 1]
+          version = request_line[/HTTP\/(1\.\d)\s*$/, 1]
           h = Digest::SHA1.hexdigest(header)[0..7]
 
-          fn = [host, request_line.gsub(/\?.*/, '').gsub(/[\s:+*#]/, '_').gsub(/[\/\\?]/, '-')[0..128], h].join('_')
-          @request_map[request_line][:fn] = @mocks_dir + fn
+          fn = [host, verb, [url.gsub(/\?.*/, '').gsub(/[\s:+*#]/, '_').gsub(/[\/\\?]/, '-')[0..128], h, version].join('_')].join('/')
+          FileUtils.mkdir_p(@mocks_dir + [host, verb].join('/'))
+
+          @request_map[host][request_line][:fn] = @mocks_dir + fn
           Logger.debug "persisting \"#{request_line}\" to #{@mocks_dir + fn}"
-          value = @request_map[request_line]
+          value = @request_map[host][request_line]
           File.open(@mocks_dir + fn, 'wb') do |f|
             f.write(request)
             f.write("\r\n\r\n")
@@ -169,7 +177,11 @@ module Disservice
     private
     def add(request, response, options={})
       request_line = request.lines.first.strip
-      @request_map[request_line] = options.merge({request: request, response: response})
+      request.lines.find{ |x| x =~ /^Host: (.*)$/ }
+      host = $1.strip rescue 'NO-HOST'
+      @request_map[host] ||= {}
+      @request_map[host][request_line] = options.merge({request: request, response: response})
+      # @request_map[request_line] = options.merge({request: request, response: response})
     end
   end
 
@@ -220,10 +232,12 @@ module Disservice
 
         Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Reading client request"
 
-        request_line = to_client.readline
+        request = ''
         request_headers = ''
         request_body = ''
         response = ''
+
+        request_line = to_client.readline
 
         verb = request_line[/^\w+/]
         url = request_line[/^\w+\s+(\S+)/, 1]
@@ -232,18 +246,33 @@ module Disservice
 
         loop do
           line = to_client.readline
-          request_headers << line unless line =~ /^Connection: /
-          _, content_length = (line =~ /^Content-Length: (\d+)/i)
+          
+          case line
+          when /^Connection: /
+            # pass
+          when /^Host: /
+            request_headers << "Host: #{@dsthost}\r\n"
+          else
+            request_headers << line
+          end
+
+          if line =~ /^Content-Length: (\d+)/i
+            content_length = $1.to_i
+          end
+
           break if line.strip.empty?
         end
-        if verb == 'POST' && content_length
+        if content_length && %w(POST PUT).include?(verb)
           line = to_client.read(content_length)
-          request_body << line unless line =~ /^Connection: /
+          request_body << line
         end
         request_headers_map = Hash[request_headers.split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
         request_headers_map['Host'] = @dsthost
 
-        matched_request = @mocker.match(request_line.strip, request_headers_map) if @options[:known] == 'replay'
+        request = request_line + request_headers
+        request << request_body if request_body
+
+        matched_request = @mocker.match(request) if @options[:known] == 'replay'
 
         if matched_request
           @num_hits += 1
@@ -269,12 +298,6 @@ module Disservice
             to_server.write(request_headers)
             to_server.write("\r\n\r\n")
             to_server.write(request_body)
-
-            content_len = request_headers_map['Content-Length'].to_i rescue 0
-
-            if content_len >= 0
-              to_server.write(to_client.read(content_len))
-            end
 
             buff = ""
             Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Writing out upstream response"
