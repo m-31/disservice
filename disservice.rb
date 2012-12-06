@@ -106,7 +106,7 @@ module Disservice
       headers_matched = headers_map.all? do |k,v|
         true and next if @ignore_headers.include?(k)
         Logger.debug "matching header #{k.inspect}: #{v.inspect} against #{found_headers_map.fetch(k, nil).inspect}"
-        found_headers_map.has_key?(k) && File.fnmatch(v, found_headers_map[k])
+        !found_headers_map.has_key?(k) || File.fnmatch(v, found_headers_map[k])
       end
       Logger.debug "headers matched? #{headers_matched.inspect}"
       return v if headers_matched
