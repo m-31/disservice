@@ -261,8 +261,17 @@ module Disservice
 
           request = request_line + request_headers
 
-          @mocker.store(request, response) if @options[:unknown] == 'record' && !matched_request
+          if @options[:unknown] == 'record' && !matched_request
+            case @options[:record]
+            when 'full'
+              @mocker.store(request, response)
+            when 'minimal'
+              @mocker.store([request.lines.first, request.lines.find{ |x| x=~/^Host: / }].join(''), response)
+            end
+          end
         end
+      rescue EOFError => e
+        Logger.warn "##{connection_count}: EOF while reading from socket"
       rescue SocketError => e
         Logger.error "##{connection_count}: Socket error: #{e}"
       end
@@ -281,6 +290,11 @@ OptionParser.new do |opts|
   options[:unknown] = 'record'
   opts.on('--unknown MODE', String, %w(pass record croak), "What to do with 'unknown' (unmatched) requests (default: #{options[:unknown]})", "  pass: pass request/response unchanged", "  record: pass request upstream and store it", "  croak: throw an exception") do |mode|
     options[:unknown] = mode
+  end
+
+  options[:record] = 'full'
+  opts.on('--record MODE', String, %w(full minimal), "How much of the request to record (default: #{options[:record]})", "  full: Full request w/ request headers", "  minimal: Only request-line and Host header") do |mode|
+    options[:record] = mode
   end
 
   options[:mocks_dir] = './mocks/'
