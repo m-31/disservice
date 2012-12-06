@@ -234,7 +234,9 @@ module Disservice
           response = matched_request[:response]
           Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Request matched, sending response"
           to_client.write(response)
+          Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Response written, closing connection"
           to_client.close
+          Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Connection closed"
           upstream_response_time = '-'
         else
           Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Request not matched"
@@ -281,13 +283,13 @@ module Disservice
             end
           end
         end
-        Logger.info "##{connection_count}: #{peeraddr}:#{peerport} \"#{request_headers_map['Host']}\" \"#{request_line.strip}\" \"#{matched_request ? matched_request[:fn] : '-'}\" \"#{matched_request ? matched_request[:request].lines.first.strip : '-'}\" #{upstream_response_time}"
+        Logger.info "##{connection_count}: [#{peeraddr}:#{peerport}] \"#{request_headers_map['Host']}\" \"#{request_line.strip}\" \"#{matched_request ? matched_request[:fn] : '-'}\" \"#{matched_request ? matched_request[:request].lines.first.strip : '-'}\" #{upstream_response_time}"
       rescue EOFError => e
-        Logger.warn "##{connection_count}: #{peeraddr}:#{peerport} EOF while reading from socket"
+        Logger.warn "##{connection_count}: [#{peeraddr}:#{peerport}] EOF while reading from socket"
       rescue Errno::ECONNRESET, Errno::EPIPE => e
-        Logger.warn "##{connection_count}: #{peeraddr}:#{peerport} Connection error: #{e}"
+        Logger.warn "##{connection_count}: [#{peeraddr}:#{peerport}] Connection error: #{e}"
       rescue SocketError => e
-        Logger.error "##{connection_count}: #{peeraddr}:#{peerport} Socket error: #{e}"
+        Logger.error "##{connection_count}: [#{peeraddr}:#{peerport}] Socket error: #{e}"
       end
     end
   end
