@@ -210,6 +210,8 @@ module Disservice
       begin
         _, peerport, peeraddr = to_client.peeraddr
 
+        Logger.debug "#{connection_count}: Reading client request"
+
         request_line = to_client.readline
         request_headers = ''
         response = ''
@@ -230,16 +232,19 @@ module Disservice
 
         if matched_request
           response = matched_request[:response]
+          Logger.debug "#{connection_count}: Request matched, sending response"
           to_client.write(response)
           to_client.close
           upstream_response_time = '-'
         else
+          Logger.debug "#{connection_count}: Request not matched"
           # unknown request
           raise Exception if @options[:unknown] == 'croak' && !matched_request
 
           request_headers = request_headers_map.map{ |k,v| [k,v].join(': ') }.join("\r\n")
 
           upstream_response_time = sprintf('%.5f', Benchmark.realtime {
+            Logger.debug "#{connection_count}: Sending upstream request"
             to_server = TCPSocket.new(@dsthost, @dstport || 80)
             to_server.write(request_line)
             to_server.write("Connection: close\r\n")
@@ -253,6 +258,7 @@ module Disservice
             end
 
             buff = ""
+            Logger.debug "#{connection_count}: Writing out upstream response"
             loop do
               to_server.read(4096, buff)
               to_client.write(buff)
@@ -262,6 +268,7 @@ module Disservice
 
             to_client.close
             to_server.close
+            Logger.debug "#{connection_count}: Finished"
           })
           request = request_line + request_headers
 
