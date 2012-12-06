@@ -23,7 +23,7 @@ require 'fileutils'
 require 'find'
 
 module Disservice
-  VERSION = '0.31'
+  VERSION = '0.3.2'
 
   class Disservice
     def initialize(options)
@@ -113,7 +113,6 @@ module Disservice
       request_headers_map = Hash[request_headers.split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
       host = request_headers_map['Host'] rescue 'NO-HOST'
       v = @request_map[host][request_line] rescue nil
-      Logger.debug [request_line, request_headers, host, v]
       return v if v.nil?
 
       stored_headers, stored_body = v[:request].split(/(\r?\n){2}/, 2)
