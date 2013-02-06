@@ -277,6 +277,7 @@ module Disservice
 
         matched_request = @mocker.match(request) if @options[:known] == 'replay'
 
+        do_not_store = false
         if matched_request
           @num_hits += 1
           response = matched_request[:response]
@@ -294,29 +295,34 @@ module Disservice
           request_headers = request_headers_map.map{ |k,v| [k,v].join(': ') }.join("\r\n")
 
           upstream_response_time = sprintf('%.5f', Benchmark.realtime {
-            Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Sending upstream request"
-            to_server = TCPSocket.new(@dsthost, @dstport || 80)
-            to_server.write(request_line)
-            to_server.write("Connection: close\r\n")
-            to_server.write(request_headers)
-            to_server.write("\r\n\r\n")
-            to_server.write(request_body)
+            begin
+              Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Sending upstream request"
+              to_server = TCPSocket.new(@dsthost, @dstport || 80)
+              to_server.write(request_line)
+              to_server.write("Connection: close\r\n")
+              to_server.write(request_headers)
+              to_server.write("\r\n\r\n")
+              to_server.write(request_body)
 
-            buff = ""
-            Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Writing out upstream response"
-            loop do
-              to_server.read(4096, buff)
-              to_client.write(buff)
-              response << buff
-              break if buff.size < 4096
+              buff = ""
+              Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Writing out upstream response"
+              loop do
+                to_server.read(4096, buff)
+                to_client.write(buff)
+                response << buff
+                break if buff.size < 4096
+              end
+              to_server.close
+            rescue Errno::ECONNREFUSED
+              Logger.error "#{connection_count}: [#{peeraddr}:#{peerport}] Connection to upstream refused"
+              do_not_store = true
+            ensure
+              to_client.close
+              Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Finished"
             end
-
-            to_client.close
-            to_server.close
-            Logger.debug "#{connection_count}: [#{peeraddr}:#{peerport}] Finished"
           })
 
-          if @options[:unknown] == 'record' && !matched_request
+          if @options[:unknown] == 'record' && !matched_request && !do_not_store
             case @options[:record]
             when 'full'
               @mocker.store(request, response)
