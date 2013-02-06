@@ -110,8 +110,8 @@ module Disservice
 
     def match(request)
       request_line, request_headers = request.split(/\r\n/, 2)
-      request_headers_map = Hash[request_headers.split(/\r?\n/)[1..-1].map{ |l| l.split(/: /, 2) }]
-      host = request_headers_map['Host'] rescue 'NO-HOST'
+      request_headers_map = Hash[request_headers.split(/\r?\n/)[0..-1].map{ |l| l.split(/: /, 2) }]
+      host = request_headers_map['Host'] rescue 'NO-HOST' # XXX Default Target Host?
       v = @request_map[host][request_line] rescue nil
       return v if v.nil?
 
